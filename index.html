@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>يوم السينما الجامعي</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+:root{color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{background:#0b0d12;color:#e5e7eb;font-family:Tahoma,"Segoe UI",system-ui,sans-serif}
+.screen{height:10px;background:linear-gradient(#fde68a,#f59e0b);border-radius:50% 50% 0 0/100% 100% 0 0;box-shadow:0 18px 60px 10px rgba(251,191,36,.55)}
+.seat{width:30px;height:30px;border-radius:8px 8px 4px 4px;font-size:10px;transition:.15s}
+@media(min-width:640px){.seat{width:38px;height:38px;font-size:11px}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useMemo} = React;
+const ROWS="ABCDEFGH".split(""), COLS=[1,2,3,4,5,6,7,8,9,10];
+const MOVIES=[
+ {id:1,title:"إنسبشن",hall:"القاعة الكبرى (A)",time:"السبت 4:00 م",emoji:"🌀",grad:"from-indigo-700 to-slate-900"},
+ {id:2,title:"المصفوفة",hall:"قاعة الحاسوب (B)",time:"السبت 7:00 م",emoji:"💊",grad:"from-emerald-700 to-slate-900"}
+];
+const SB="https://ezefsyyxhpbdaryuezwf.supabase.co",KEY="sb_publishable__E2KeH4DuVtRBOfZF4NpYw_CYS1gwot";
+const api=async(fn,args)=>{const r=await fetch(SB+"/rest/v1/rpc/"+fn,{method:"POST",headers:{"Content-Type":"application/json",apikey:KEY},body:JSON.stringify(args||{})});
+ const t=await r.text();let d;try{d=t?JSON.parse(t):null}catch(e){d=t}
+ if(!r.ok)throw new Error((d&&d.message)||"request failed");return d};
+const norm=r=>({id:r.id,code:r.code,movieId:r.movie_id,seat:r.seat,name:r.name,dept:r.dept,gender:r.gender,contact:r.contact,status:r.status,reason:r.rejection_reason,checkedIn:r.is_checked_in});
+const ld=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
+const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const ICON={
+ film:"M4 4h16v16H4zM8 4v16M16 4v16M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4",
+ ticket:"M2 9a3 3 0 0 1 0 6v3h20v-3a3 3 0 0 1 0-6V6H2zM13 6v12",
+ shield:"M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z",
+ check:"M20 6L9 17l-5-5", x:"M18 6L6 18M6 6l12 12",
+ scan:"M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10",
+ search:"M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"
+};
+const Ic=({n,s=18})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={ICON[n]}/></svg>;
+
+function QR({text}){
+ const N=25; let h=2166136261; for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)>>>0}
+ const rnd=()=>{h^=h<<13;h>>>=0;h^=h>>>17;h^=h<<5;h>>>=0;return h/4294967296};
+ const cells=[]; const fin=(x,y)=>{const f=(a,b)=>a>=0&&a<7&&b>=0&&b<7;
+  for(const [ox,oy] of [[0,0],[N-7,0],[0,N-7]]){const a=x-ox,b=y-oy;if(f(a,b))return (a==0||a==6||b==0||b==6||(a>=2&&a<=4&&b>=2&&b<=4))?1:0;
+   if(x>=ox-1&&x<=ox+7&&y>=oy-1&&y<=oy+7)return 0}return null};
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++){const f=fin(x,y);const on=f===null?rnd()>0.5:f===1;if(on)cells.push(<rect key={x+"-"+y} x={x+1} y={y+1} width="1.02" height="1.02"/>)}
+ return <svg viewBox={`0 0 ${N+2} ${N+2}`} className="w-40 h-40 bg-white rounded-lg" shapeRendering="crispEdges"><g fill="#000">{cells}</g></svg>;
+}
+
+function SeatMap({movie,bookings,selected,onPick,checkin}){
+ const st=(seat)=>{const b=bookings.find(b=>b.movieId===movie&&b.seat===seat&&(b.status==="pending"||b.status==="approved"));
+  return !b?"free":(checkin&&b.checkedIn)?"in":"taken"};
+ return <div className="flex flex-col items-center gap-6">
+  <div className="w-full max-w-md"><div className="screen"/><p className="text-center text-xs text-amber-300 mt-3">شاشة العرض</p></div>
+  <div className="space-y-1.5" dir="ltr">
+   {ROWS.map(r=><div key={r} className="flex items-center gap-1.5 justify-center">
+    <span className="w-4 text-xs text-slate-500">{r}</span>
+    {COLS.map(c=>{const code=r+"-"+c,s=st(code),sel=selected===code;
+     const cls=sel?"bg-amber-400 text-black shadow-[0_0_12px_#fbbf24]":s==="in"?"bg-violet-600 text-white":s==="taken"?"bg-red-700/80 text-red-200 cursor-not-allowed":"bg-emerald-900 text-emerald-200 hover:bg-emerald-700";
+     return <button key={c} disabled={s==="taken"&&!checkin||(checkin&&s==="free")&&false} onClick={()=>onPick&&onPick(code,s)} className={"seat "+cls}>{c}</button>})}
+   </div>)}
+  </div>
+  <div className="flex flex-wrap gap-3 text-xs justify-center">
+   {[["bg-emerald-900","متاح"],["bg-amber-400","محدد"],["bg-red-700","محجوز / قيد المراجعة"]].concat(checkin?[["bg-violet-600","تم الدخول"]]:[]).map(([c,t])=><span key={t} className="flex items-center gap-1"><i className={"w-3 h-3 rounded "+c}/>{t}</span>)}
+  </div></div>;
+}
+
+function Modal({children,onClose,title}){
+ return <div className="fixed inset-0 z-50 bg-black/70 flex items-start sm:items-center justify-center p-3 overflow-auto" onClick={onClose}>
+  <div className="bg-slate-900 border border-amber-500/30 rounded-2xl w-full max-w-lg p-5 my-6" onClick={e=>e.stopPropagation()}>
+   <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-amber-300">{title}</h3><button onClick={onClose} className="text-slate-400"><Ic n="x"/></button></div>{children}</div></div>;
+}
+const inp="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-amber-400";
+const btn="bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-lg px-4 py-2";
+
+function BookingForm({movie,seat,onDone,onClose}){
+ const [f,setF]=useState({name:"",dept:"",gender:"ذكر",contact:""}); const [done,setDone]=useState(null),[err,setErr]=useState(""),[busy,setBusy]=useState(false);
+ const ok=f.name.trim().split(/\s+/).length>=3&&f.dept.trim()&&f.contact.trim();
+ if(done) return <div className="text-center space-y-3"><div className="text-emerald-400 flex justify-center"><Ic n="check" s={40}/></div>
+  <p>تم استلام طلبك وهو قيد المراجعة.</p><div className="text-3xl font-mono font-bold text-amber-300 tracking-widest">{done}</div>
+  <p className="text-sm text-slate-300">احتفظ بهذا الرمز، ثم استخدم زر «استعلام عن حجزي» لاحقاً للحصول على تذكرتك.</p><button className={btn} onClick={onClose}>حسناً</button></div>;
+ return <div className="space-y-3">
+  <p className="text-sm text-slate-300">{movie.title} — المقعد <b className="text-amber-300">{seat}</b></p>
+  <input className={inp} placeholder="الاسم الثلاثي" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/>
+  <input className={inp} placeholder="القسم والمرحلة" value={f.dept} onChange={e=>setF({...f,dept:e.target.value})}/>
+  <div className="flex gap-2">{["ذكر","أنثى"].map(g=><button key={g} onClick={()=>setF({...f,gender:g})} className={"flex-1 rounded-lg py-2 border "+(f.gender===g?"bg-amber-500 text-black border-amber-500":"border-slate-700")}>{g}</button>)}</div>
+  <input className={inp} placeholder="حساب التواصل لتأكيد الحضور (تيليجرام / هاتف)" value={f.contact} onChange={e=>setF({...f,contact:e.target.value})}/>
+  {!ok&&<p className="text-xs text-slate-500">يرجى إدخال الاسم الثلاثي وباقي الحقول.</p>}
+  {err&&<p className="text-red-400 text-sm">{err}</p>}<button disabled={!ok||busy} className={btn+" w-full disabled:opacity-40"} onClick={async()=>{setBusy(true);setErr("");try{setDone(await onDone(f))}catch(e){setErr(/duplicate|unique/i.test(e.message)?"هذا المقعد تم حجزه للتو، اختر مقعداً آخر.":"تعذر إرسال الطلب: "+e.message)}setBusy(false)}}>{busy?"جارٍ الإرسال...":"تأكيد الحجز"}</button></div>;
+}
+
+function Inquiry(){
+ const [code,setCode]=useState(()=>{try{return localStorage.getItem("cin_last")||""}catch(e){return ""}});
+ const [q,setQ]=useState(null),[b,setB]=useState(null),[busy,setBusy]=useState(false);
+ const find=async()=>{setBusy(true);setB(null);try{const r=await api("get_booking",{p_code:code});setB(r&&r[0]?norm(r[0]):null)}catch(e){setB(null)}setQ(code);setBusy(false)};
+ const mv=b&&MOVIES.find(m=>m.id===b.movieId);
+ return <div className="space-y-4">
+  <div className="flex gap-2"><input dir="ltr" className={inp} placeholder="CIN-000" value={code} onChange={e=>setCode(e.target.value)}/><button className={btn} onClick={find}><Ic n="search"/></button></div>
+  {q&&!b&&!busy&&<p className="text-red-400 text-center">لا يوجد حجز بهذا الرمز.</p>}
+  {b&&b.status==="pending"&&<div className="bg-amber-500/10 border border-amber-500/40 rounded-xl p-4 space-y-1"><p className="font-bold text-amber-300">طلبك قيد المراجعة</p><p className="text-sm">{b.name} — {mv.title} — مقعد {b.seat}</p></div>}
+  {b&&b.status==="rejected"&&<div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 space-y-2"><p className="font-bold text-red-400">تم رفض طلبك</p><p className="text-sm">سبب الرفض: <b>{b.reason}</b></p><p className="text-xs text-slate-400">المقعد {b.seat} أصبح متاحاً للآخرين.</p></div>}
+  {b&&b.status==="approved"&&<div className="relative bg-gradient-to-br from-slate-800 to-slate-950 border-2 border-amber-400 rounded-2xl p-5 flex flex-col items-center gap-3">
+   <p className="text-amber-300 font-bold tracking-wide">🎟 تذكرة إلكترونية</p>
+   <QR text={b.code+"|"+mv.title+"|"+b.seat}/>
+   <div className="w-full text-sm grid grid-cols-2 gap-2">
+    <span>الاسم: <b>{b.name}</b></span><span>القسم: <b>{b.dept}</b></span><span>الجنس: <b>{b.gender}</b></span><span>الفيلم: <b>{mv.title}</b></span>
+    <span>المقعد: <b className="text-amber-300">{b.seat}</b></span><span>الرمز: <b dir="ltr">{b.code}</b></span></div>
+   {b.checkedIn&&<div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center"><span className="border-4 border-red-500 text-red-500 text-xl font-black px-4 py-2 -rotate-12 rounded-lg text-center">تم استخدام التذكرة للدخول</span></div>}
+  </div>}
+ </div>;
+}
+
+function Admin({pin}){
+ const [tab,setTab]=useState(1),[rej,setRej]=useState(null),[reason,setReason]=useState("");
+ const [mv,setMv]=useState(1),[val,setVal]=useState(""),[scan,setScan]=useState(""),[res,setRes]=useState(null);
+ const [bookings,setBookings]=useState([]),[msg,setMsg]=useState("");
+ const load=async()=>{try{setBookings((await api("admin_list",{p_pin:pin})).map(norm))}catch(e){setMsg("تعذر تحميل الطلبات: "+e.message)}};
+ useEffect(()=>{load();const t=setInterval(load,8000);return()=>clearInterval(t)},[]);
+ const setSt=async(id,status,reason)=>{try{await api("admin_set_status",{p_pin:pin,p_id:id,p_status:status,p_reason:reason||""});await load()}catch(e){setMsg(e.message)}};
+ const nm=id=>MOVIES.find(m=>m.id===id).title;
+ const doCheck=async(b)=>{
+  if(!b) return setRes({t:"err",m:"لم يتم العثور على تذكرة مطابقة."});
+  if(b.status!=="approved") return setRes({t:"err",m:"التذكرة غير مقبولة (الحالة: "+(b.status==="pending"?"قيد المراجعة":"مرفوضة")+")."});
+  if(b.checkedIn) return setRes({t:"err",m:"هذه التذكرة مستخدمة مسبقاً (استعمال واحد فقط)",b});
+  try{const ok=await api("admin_checkin",{p_pin:pin,p_id:b.id});await load();
+  setRes(ok?{t:"ok",m:"تم تسجيل الدخول بنجاح",b}:{t:"err",m:"هذه التذكرة مستخدمة مسبقاً (استعمال واحد فقط)",b})}catch(e){setRes({t:"err",m:e.message})}
+ };
+ const byInput=v=>{v=v.trim().toUpperCase().split("|")[0];
+  return bookings.find(b=>b.code===v)||bookings.find(b=>b.movieId===mv&&b.seat===v&&b.status!=="rejected")};
+ const pend=bookings.filter(b=>b.status==="pending"),hist=bookings.filter(b=>b.status!=="pending").slice().reverse();
+ const Row=({b,acts})=><div className="bg-slate-800/70 rounded-xl p-3 text-sm space-y-1">
+  <div className="flex justify-between"><b>{b.name}</b><span dir="ltr" className="text-amber-300">{b.code}</span></div>
+  <p className="text-slate-300">{b.dept} • {b.gender} • {b.contact}</p><p>{nm(b.movieId)} — مقعد <b>{b.seat}</b></p>
+  {b.status==="rejected"&&<p className="text-red-400">مرفوض: {b.reason}</p>}{b.status==="approved"&&<p className="text-emerald-400">مقبول{b.checkedIn?" • دخل":""}</p>}{acts}</div>;
+ return <div>
+  <div className="flex gap-2 mb-4">{[[1,"إدارة الطلبات","ticket"],[2,"بوابة الدخول","scan"]].map(([i,t,ic])=><button key={i} onClick={()=>setTab(i)} className={"flex-1 flex items-center justify-center gap-2 py-2 rounded-lg "+(tab===i?"bg-amber-500 text-black font-bold":"bg-slate-800")}><Ic n={ic}/>{t}</button>)}</div>
+  {msg&&<p className="text-red-400 text-sm mb-2">{msg}</p>}
+  {tab===1&&<div className="space-y-3">
+   <h4 className="font-bold text-amber-300">قيد المراجعة ({pend.length})</h4>
+   {pend.length===0&&<p className="text-slate-500 text-sm">لا توجد طلبات.</p>}
+   {pend.map(b=><Row key={b.id} b={b} acts={rej===b.id?<div className="flex gap-2 pt-1"><input className={inp} placeholder="سبب الرفض" value={reason} onChange={e=>setReason(e.target.value)}/><button disabled={!reason.trim()} className="bg-red-600 rounded-lg px-3 disabled:opacity-40" onClick={()=>{setSt(b.id,"rejected",reason.trim());setRej(null);setReason("")}}>تأكيد</button></div>:
+    <div className="flex gap-2 pt-1"><button className="flex-1 bg-emerald-600 rounded-lg py-1.5" onClick={()=>setSt(b.id,"approved")}>موافقة</button><button className="flex-1 bg-red-600 rounded-lg py-1.5" onClick={()=>{setRej(b.id);setReason("")}}>رفض</button></div>}/>)}
+   <h4 className="font-bold text-amber-300 pt-2">السجل</h4>{hist.map(b=><Row key={b.id} b={b}/>)}
+  </div>}
+  {tab===2&&<div className="space-y-4">
+   <div className="flex gap-2">{MOVIES.map(m=><button key={m.id} onClick={()=>{setMv(m.id);setRes(null)}} className={"flex-1 py-1.5 rounded-lg text-sm "+(mv===m.id?"bg-amber-500 text-black":"bg-slate-800")}>{m.title}</button>)}</div>
+   {res&&<div className={"rounded-xl p-4 text-center font-bold "+(res.t==="ok"?"bg-emerald-600":"bg-red-600")}>{res.m}{res.b&&<p className="text-sm font-normal mt-1">{res.b.name} • {res.b.dept} • {nm(res.b.movieId)} • {res.b.seat}</p>}</div>}
+   <div className="flex gap-2"><input dir="ltr" className={inp} placeholder="رمز المقعد C-4 أو CIN-582" value={val} onChange={e=>setVal(e.target.value)}/><button className={btn} onClick={()=>{doCheck(byInput(val));setVal("")}}>دخول</button></div>
+   <div className="flex gap-2"><input dir="ltr" className={inp} placeholder="محاكاة قارئ QR: الصق CIN-582|فيلم|C-4" value={scan} onChange={e=>setScan(e.target.value)}/>
+    <button className={btn} onClick={()=>{doCheck(byInput(scan));setScan("")}}><Ic n="scan"/></button></div>
+   <button className="text-xs underline text-slate-400" onClick={()=>{const a=bookings.find(b=>b.status==="approved"&&b.movieId===mv&&!b.checkedIn);a?setScan(a.code+"|"+nm(a.movieId)+"|"+a.seat):setRes({t:"err",m:"لا توجد تذاكر مقبولة غير مستخدمة"})}}>تعبئة مسح تجريبي من تذكرة مقبولة</button>
+   <SeatMap movie={mv} bookings={bookings} checkin onPick={(c,s)=>{if(s==="free")setRes({t:"err",m:"المقعد غير محجوز."});else doCheck(byInput(c))}}/>
+  </div>}
+ </div>;
+}
+
+function App(){
+ const [bookings,setBookings]=useState([]),[err,setErr]=useState(""),[bad,setBad]=useState(false);
+ const [movie,setMovie]=useState(1),[seat,setSeat]=useState(null),[modal,setModal]=useState(null),[pin,setPin]=useState(""),[auth,setAuth]=useState(false);
+ const m=MOVIES.find(x=>x.id===movie);
+ const loadSeats=async()=>{try{const r=await api("public_seats",{p_movie:movie});setBookings(r.map(x=>({movieId:movie,seat:x.seat,status:x.status,checkedIn:x.is_checked_in})));setErr("")}catch(e){setErr("تعذر الاتصال بقاعدة البيانات")}};
+ useEffect(()=>{setBookings([]);loadSeats();const t=setInterval(loadSeats,5000);return()=>clearInterval(t)},[movie]);
+ const book=async(f)=>{const code=await api("create_booking",{p_movie:movie,p_seat:seat,p_name:f.name.trim(),p_dept:f.dept.trim(),p_gender:f.gender,p_contact:f.contact.trim()});
+  try{localStorage.setItem("cin_last",code)}catch(e){} loadSeats(); return code};
+ const login=async()=>{try{await api("admin_list",{p_pin:pin});setAuth(true);setBad(false)}catch(e){setBad(true)}};
+ const close=()=>{setModal(null);setSeat(null)};
+ return <div className="min-h-screen">
+  <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur border-b border-amber-500/20 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+   <h1 className="font-bold text-amber-300 flex items-center gap-2 text-sm sm:text-base"><Ic n="film" s={22}/>يوم السينما الجامعي - قسم تكنولوجيا المعلومات</h1>
+   <div className="flex gap-2 text-sm">
+    <button className="bg-slate-800 border border-amber-500/40 rounded-lg px-3 py-1.5 flex items-center gap-1" onClick={()=>setModal("inq")}><Ic n="search" s={15}/>استعلام عن حجزي</button>
+    <button className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 flex items-center gap-1" onClick={()=>setModal("admin")}><Ic n="shield" s={15}/>لوحة الأدمن</button></div>
+  </header>
+  <main className="max-w-3xl mx-auto p-4 space-y-6">
+   {err&&<p className="text-red-400 text-center text-sm">{err}</p>}
+   <div className="grid grid-cols-2 gap-3">{MOVIES.map(x=><button key={x.id} onClick={()=>{setMovie(x.id);setSeat(null)}} className={"rounded-2xl overflow-hidden text-right border-2 "+(movie===x.id?"border-amber-400 shadow-[0_0_20px_rgba(251,191,36,.3)]":"border-slate-800")}>
+    <div className={"h-28 bg-gradient-to-br flex items-center justify-center text-5xl "+x.grad}>{x.emoji}</div>
+    <div className="p-3 bg-slate-900"><p className="font-bold">{x.title}</p><p className="text-xs text-slate-400">{x.hall}</p><p className="text-xs text-amber-300">{x.time}</p></div></button>)}</div>
+   <SeatMap movie={movie} bookings={bookings} selected={seat} onPick={(c,s)=>{if(s==="free"){setSeat(c);setModal("book")}}}/>
+  </main>
+  {modal==="book"&&<Modal title="حجز مقعد" onClose={close}><BookingForm movie={m} seat={seat} onDone={book} onClose={close}/></Modal>}
+  {modal==="inq"&&<Modal title="استعلام عن حجزي" onClose={close}><Inquiry/></Modal>}
+  {modal==="admin"&&<Modal title="لوحة الأدمن" onClose={close}>{auth?<Admin pin={pin}/>:
+   <div className="space-y-3"><input type="password" inputMode="numeric" className={inp} placeholder="الرقم السري" value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login()}/>
+    {bad&&<p className="text-red-400 text-sm">الرقم السري غير صحيح</p>}
+    <button className={btn+" w-full"} onClick={login}>دخول</button></div>}</Modal>}
+ </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
